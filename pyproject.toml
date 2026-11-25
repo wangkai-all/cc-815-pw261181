@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "join-sampler"
+version = "1.0.0"
+description = "两表按键关联的两级均匀抽样工具：不预抽行、不物化关联结果、接受率校正、可恢复随机状态"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "join-sampler contributors" }]
+keywords = ["join", "sampling", "two-level sampling", "rejection sampling", "audit"]
+# 全程仅使用 Python 标准库，无第三方运行依赖。
+dependencies = []
+
+[project.scripts]
+join-sampler = "join_sampler.cli:main"
+join-sampler-web = "join_sampler.webapp:main"
+
+[tool.setuptools]
+packages = ["join_sampler"]
+
+[tool.setuptools.package-data]
+join_sampler = ["web_static/*.html", "web_static/*.css", "web_static/*.js"]

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>关联抽样工作台 · Join Sampler</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="viz-root" id="app">
+  <header class="topbar">
+    <div>
+      <h1>关联抽样工作台</h1>
+      <p class="subtitle">两级加权抽样 · 等概率关联对 · 同快照计数与取样 · 可恢复随机状态</p>
+    </div>
+    <div class="topbar-actions">
+      <label class="theme-toggle">
+        主题
+        <select id="theme-select">
+          <option value="auto">跟随系统</option>
+          <option value="light">浅色</option>
+          <option value="dark">深色</option>
+        </select>
+      </label>
+    </div>
+  </header>
+
+  <section class="panel">
+    <h2>1. 新建抽样运行</h2>
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="synthetic" role="tab" aria-selected="true">合成数据</button>
+      <button class="tab" data-tab="upload" role="tab" aria-selected="false">上传 CSV</button>
+    </div>
+
+    <div class="tab-panel" data-panel="synthetic">
+      <div class="form-grid">
+        <label>左表行数 <input type="number" id="syn-left-rows" value="50000" min="1"></label>
+        <label>右表行数 <input type="number" id="syn-right-rows" value="50000" min="1"></label>
+        <label>不同键数 <input type="number" id="syn-keys" value="500" min="1"></label>
+        <label>热点键加权倍数 <input type="number" id="syn-hot" value="200" min="1"></label>
+        <label>空值键比例 <input type="number" id="syn-null" value="0.02" min="0" max="1" step="0.01"></label>
+        <label>数据种子 <input type="number" id="syn-data-seed" value="42"></label>
+      </div>
+    </div>
+
+    <div class="tab-panel hidden" data-panel="upload">
+      <div class="form-grid">
+        <label>左表 CSV <input type="file" id="up-left" accept=".csv,text/csv"></label>
+        <label>右表 CSV <input type="file" id="up-right" accept=".csv,text/csv"></label>
+      </div>
+      <p class="hint">首行表头；空字段 / null / NaN 视为 NULL 键，NULL 键不参与内关联。</p>
+    </div>
+
+    <div class="form-grid form-grid-wide">
+      <label>键列名 <input type="text" id="cfg-key" value="k"></label>
+      <label>成对条件（可空）
+        <input type="text" id="cfg-condition" placeholder="例如 abs(L.v - R.v) &lt;= 100">
+      </label>
+      <label>抽样数量 <input type="number" id="cfg-n" value="200" min="1"></label>
+      <label>模式
+        <select id="cfg-mode">
+          <option value="WR">有放回 WR</option>
+          <option value="WOR">无放回 WOR</option>
+        </select>
+      </label>
+      <label>随机种子 <input type="number" id="cfg-seed" value="7"></label>
+      <label>单键枚举上限 <input type="number" id="cfg-max-pairs" value="100000" min="1"></label>
+      <label>估计探针数 <input type="number" id="cfg-probes" value="2000" min="10"></label>
+      <label>构建求值上限（可空） <input type="number" id="cfg-max-eval" placeholder="不限"></label>
+      <label>构建秒数上限（可空） <input type="number" id="cfg-max-sec" placeholder="不限" step="0.1"></label>
+      <label>内存字节上限（可空） <input type="number" id="cfg-max-mem" placeholder="不限"></label>
+    </div>
+    <div class="actions">
+      <button class="primary" id="btn-run">构建快照并抽样</button>
+      <span class="error" id="form-error" role="alert"></span>
+    </div>
+  </section>
+
+  <section class="panel hidden" id="run-panel">
+    <div class="panel-head">
+      <h2>2. 运行结果 <span class="muted" id="run-title"></span></h2>
+      <div class="actions">
+        <label>追加一批 <input type="number" id="append-n" value="100" min="1" style="width:110px"></label>
+        <button id="btn-append">从检查点状态追加（不换种子）</button>
+      </div>
+    </div>
+
+    <div class="stat-grid" id="stat-grid"></div>
+
+    <h3>键分布（同一组键、各图独立单一刻度的小倍数）</h3>
+    <div class="chart-wrap">
+      <div id="chart-legend" class="legend" aria-hidden="true"></div>
+      <svg id="chart-keys-hit" role="img" aria-label="各键抽样命中次数柱状图"></svg>
+      <svg id="chart-keys-weight" role="img" aria-label="各键校正权重柱状图"></svg>
+      <div class="tooltip" id="tooltip" hidden></div>
+    </div>
+
+    <h3>逐键构建依据</h3>
+    <div class="table-wrap">
+      <table id="table-keys">
+        <thead>
+          <tr>
+            <th>键</th><th>左行数</th><th>右行数</th><th>关联对数</th>
+            <th>权重模式</th><th>接受率</th><th>接受率来源</th>
+            <th>校正权重</th><th>估计接受对数</th><th>探针/枚举数</th><th>已抽次数</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <h3>每个结果对的入选依据</h3>
+    <div class="table-wrap">
+      <table id="table-records">
+        <thead>
+          <tr>
+            <th>#</th><th>键</th><th>左行号</th><th>右行号</th>
+            <th>左行内容</th><th>右行内容</th>
+            <th>P(选键)</th><th>P(键内选对)</th><th>P(联合)</th>
+            <th>权重模式</th><th>拒绝尝试</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <h3>内存与物化情况</h3>
+    <div class="stat-grid" id="memory-grid"></div>
+  </section>
+
+  <section class="panel hidden" id="compare-panel">
+    <h2>3. 两版运行比较</h2>
+    <div class="form-grid">
+      <label>基准运行
+        <select id="cmp-base"></select>
+      </label>
+      <label>对比运行
+        <select id="cmp-other"></select>
+      </label>
+    </div>
+    <div class="actions"><button class="primary" id="btn-compare">比较</button></div>
+    <div id="compare-result"></div>
+  </section>
+
+  <section class="panel">
+    <h2>运行历史</h2>
+    <div class="table-wrap">
+      <table id="table-runs">
+        <thead><tr><th>ID</th><th>标签</th><th>模式</th><th>种子</th><th>样本量</th><th>快照指纹</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
